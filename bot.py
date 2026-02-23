@@ -1,6 +1,6 @@
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Set, Dict
+from typing import Set, Dict, List
 
 from telegram import Update, ChatPermissions
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
@@ -8,14 +8,23 @@ from telegram.constants import ChatMemberStatus
 
 # ⚠️ ТВОИ ДАННЫЕ
 TOKEN = "1543341831:AAGjnQb9uLLLmfyF_9rR-hLG8_uvNiXHbgM"
-ALLOWED_CHAT_ID = -3585377659
+
+# 📋 СПИСОК РАЗРЕШЕННЫХ ГРУПП (можно добавлять как ID, так и username)
+ALLOWED_CHATS: List[str | int] = [
+    -3585377659,        # Группа 1 (по ID)
+    "@Laboratory_S55",  # Группа 2 (по username)
+    # Добавляй новые группы в любом формате:
+    # -1001234567890,   # Еще группа по ID
+    # "@another_group", # Еще группа по username
+]
 
 # Настройки фильтра
-MUTE_DURATION: int = 1200  # 120 (2 минуты)
+MUTE_DURATION: int = 1200  # 1200 секунд (20 минут)
 
 # Слова-триггеры
 TRIGGER_WORDS: Set[str] = {
-    "добавить", "дабавить", "номер", "дабавте", "добавте", "добавьте", "дабавьте", "заработай", "бизнес", "пассивный доход",
+    "добавить", "дабавить", "номер", "дабавте", "добавте",
+    "добавьте", "дабавьте", "заработай", "бизнес", "пассивный доход",
     "http", "https", "www", "com", "ru", "net", "org"
 }
 
@@ -56,23 +65,17 @@ def contains_phone_number(text: str) -> bool:
     if not text:
         return False
     
-    # Убираем пробелы и дефисы для проверки
     clean_text = re.sub(r'[\s\-\(\)]', '', text)
     
-    # Проверяем разные паттерны
     patterns = [
-        r'\+79\d{7,}',      # +79 и 7+ цифр
-        r'89\d{7,}',         # 89 и 7+ цифр
-        r'8-9\d{6,}',        # 8-9 и 6+ цифр
-        r'8\s?9\s?\d{7,}',   # 8 9 1234567
-        r'79\d{7,}',         # 79 и 7+ цифр (без +)
+        r'\+79\d{7,}', r'89\d{7,}', r'8-9\d{6,}',
+        r'8\s?9\s?\d{7,}', r'79\d{7,}',
     ]
     
     for pattern in patterns:
         if re.search(pattern, clean_text):
             return True
     
-    # Если есть последовательность из 7+ цифр
     digit_sequences = re.findall(r'\d{7,}', clean_text)
     if digit_sequences:
         return True
@@ -101,7 +104,6 @@ async def restrict_user(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         
         restricted_users[user_id] = until_time
         
-        # Удаляем сообщение
         try:
             await update.message.delete()
         except:
@@ -141,10 +143,30 @@ async def check_restrictions(context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
+async def is_chat_allowed(chat: Update.effective_chat) -> bool:
+    """Проверяет, разрешена ли группа"""
+    # Проверка по ID
+    if chat.id in ALLOWED_CHATS:
+        return True
+    
+    # Проверка по username (если есть)
+    if chat.username and f"@{chat.username}" in ALLOWED_CHATS:
+        return True
+    if chat.username and chat.username in ALLOWED_CHATS:
+        return True
+    
+    return False
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Основной обработчик"""
     message = update.message
-    if not message or message.chat.id != ALLOWED_CHAT_ID:
+    if not message:
+        return
+    
+    chat = message.chat
+    
+    # 🔥 ПРОВЕРКА: если группа не в списке разрешенных - игнорируем
+    if not await is_chat_allowed(chat):
         return
     
     user = message.from_user
@@ -160,7 +182,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if (contains_trigger_words(message_text) or 
         contains_dangerous_symbols(message_text) or 
         contains_emoji(message_text) or
-        contains_phone_number(message_text)):  # 👈 Новая проверка телефонов
+        contains_phone_number(message_text)):
         
         await restrict_user(update, context, user.id)
         
@@ -185,7 +207,12 @@ def main():
         message_handler
     ))
     
+    # Выводим список разрешенных групп при запуске
     print("✅ Бот запущен и работает в тихом режиме")
+    print("📋 Разрешенные группы:")
+    for chat in ALLOWED_CHATS:
+        print(f"   - {chat}")
+    
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
